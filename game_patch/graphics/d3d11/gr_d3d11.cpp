@@ -156,9 +156,16 @@ namespace gr::d3d11
             D3D_FEATURE_LEVEL_9_1
         };
 
-        DWORD flags = raw_command_line_has_switch(L"-d3d11-debug-layer")
-            ? D3D11_CREATE_DEVICE_DEBUG
-            : 0;
+        // OpenXR runtimes may share BGRA swapchain surfaces with their
+        // compositor.  VirtualDesktopXR accepts a device without this flag,
+        // but the native Meta/Oculus runtime can fail inside xrCreateSession
+        // when it is handed such a device.  BGRA support is harmless for the
+        // desktop renderer and makes the renderer device suitable for every
+        // D3D11 OpenXR runtime before the session is created.
+        DWORD flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+        if (raw_command_line_has_switch(L"-d3d11-debug-layer")) {
+            flags |= D3D11_CREATE_DEVICE_DEBUG;
+        }
 
     CREATE_DEVICE:
         D3D_FEATURE_LEVEL feature_level_supported{};
