@@ -4,14 +4,22 @@
 
 # Alpine Faction VR
 
-Alpine Faction VR 1.0 beta is a tested virtual-reality implementation for the 2001 FPS **Red Faction**, built on top of [Alpine Faction](https://github.com/GooberRF/alpinefaction).
+Alpine Faction VR 1.1 beta is a tested virtual-reality implementation for the 2001 FPS **Red Faction**, built on top of [Alpine Faction](https://github.com/GooberRF/alpinefaction).
 
 > [!CAUTION]
 > This is a beta VR release and may still crash or cause visual, input, or gameplay issues on some systems. Back up your files and saves before trying it.
 
-The current release is **Alpine Faction VR 1.0 beta**.
+The current release is **Alpine Faction VR 1.1 beta (VDXR fix)**.
 
-## What's new in 1.0 beta
+## What's new in 1.1 beta
+
+- Updated the D3D11/OpenXR device configuration used by the verified VDXR build.
+- Added clear runtime-compatibility guidance while native Meta XR and SteamXR support are being investigated.
+
+> [!IMPORTANT]
+> **Alpine Faction VR currently works only with VirtualDesktopXR (VDXR).** Native Meta XR currently crashes while creating a 32-bit OpenXR session, and the current SteamVR installation does not provide a 32-bit SteamXR runtime. Support for additional OpenXR runtimes is being worked on.
+
+## Highlights from 1.0 beta
 
 - The bomb-defusal sequence and ending credits are now presented correctly in VR.
 - The bomb-defusal interface supports left-thumbstick directional input.
@@ -25,14 +33,15 @@ The current release is **Alpine Faction VR 1.0 beta**.
 
 The project adds an optional OpenXR path to Alpine Faction's Direct3D 11 renderer, including stereoscopic rendering, headset tracking, VR-oriented camera and weapon handling, and configurable snap or smooth turning. Singleplayer is the primary target. Client multiplayer is available on a best-effort, unsupported basis; dedicated-server VR is not supported.
 
-An active OpenXR runtime and a working PC VR setup are required. VR mode forces the Direct3D 11 renderer.
+Virtual Desktop Streamer with **VirtualDesktopXR (VDXR)** selected as the active OpenXR runtime and a working PC VR setup are currently required. VR mode forces the Direct3D 11 renderer.
 
 ## Installation
 
 1. Install a legitimate copy of **Red Faction**.
 2. Download the latest installer from this repository's [Releases](https://github.com/CactusVRStudios/alpinefactionVR/releases) page and run it. It locates Red Faction, updates supported retail/digital versions when needed, creates the required directories, and installs Alpine Faction VR in one pass.
-3. Start `AlpineFactionVR.exe`. **VR / OpenXR is enabled by default**; open **Options** if you want to change the turn mode or other VR settings.
-4. Make sure your headset's OpenXR runtime is active, then launch the game.
+3. In Virtual Desktop Streamer, select **VDXR** as the OpenXR runtime and connect the headset through Virtual Desktop.
+4. Start `AlpineFactionVR.exe`. **VR / OpenXR is enabled by default**; open **Options** if you want to change the turn mode or other VR settings.
+5. Launch the game.
 
 The launcher automatically selects the bundled `VR` mod while VR mode is enabled.
 

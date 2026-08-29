@@ -145,6 +145,19 @@ namespace gr::d3d11
             rf::fatal_error("Cannot find D3D11CreateDevice procedure");
         }
  
+        // Keep the 32-bit VR renderer at the broadly supported D3D 11.0
+        // feature level used by the verified VDXR release build. The renderer
+        // does not depend on 11.1-only functionality.
+#ifdef AF_ENABLE_OPENXR
+        const D3D_FEATURE_LEVEL feature_levels[] = {
+            D3D_FEATURE_LEVEL_11_0,
+            D3D_FEATURE_LEVEL_10_1,
+            D3D_FEATURE_LEVEL_10_0,
+            D3D_FEATURE_LEVEL_9_3,
+            D3D_FEATURE_LEVEL_9_2,
+            D3D_FEATURE_LEVEL_9_1
+        };
+#else
         // By default, `D3D_FEATURE_LEVEL_11_1` is not requested.
         const D3D_FEATURE_LEVEL feature_levels[] = {
             D3D_FEATURE_LEVEL_11_1,
@@ -155,13 +168,11 @@ namespace gr::d3d11
             D3D_FEATURE_LEVEL_9_2,
             D3D_FEATURE_LEVEL_9_1
         };
+#endif
 
         // OpenXR runtimes may share BGRA swapchain surfaces with their
-        // compositor.  VirtualDesktopXR accepts a device without this flag,
-        // but the native Meta/Oculus runtime can fail inside xrCreateSession
-        // when it is handed such a device.  BGRA support is harmless for the
-        // desktop renderer and makes the renderer device suitable for every
-        // D3D11 OpenXR runtime before the session is created.
+        // compositor. BGRA support is harmless for the desktop renderer and
+        // keeps the D3D11 device suitable for compositor-owned surfaces.
         DWORD flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
         if (raw_command_line_has_switch(L"-d3d11-debug-layer")) {
             flags |= D3D11_CREATE_DEVICE_DEBUG;

@@ -1,6 +1,15 @@
 ⚙️⛏ Alpine Faction Changelog ⛏⚙️
 ===================================
 
+Alpine Faction VR 1.1 beta (VDXR fix): Aug-29-2026
+--------------------------------
+### VR changes
+- Package the verified VDXR-compatible D3D11/OpenXR build.
+- Document that VirtualDesktopXR is currently the only supported OpenXR runtime.
+- Native Meta XR currently crashes during 32-bit OpenXR session creation.
+- Current SteamXR installations do not expose a 32-bit OpenXR runtime to Red Faction.
+- Compatibility with additional OpenXR runtimes remains under active investigation.
+
 Alpine Faction VR 1.0 beta: Released Aug-21-2026
 --------------------------------
 ### VR changes
