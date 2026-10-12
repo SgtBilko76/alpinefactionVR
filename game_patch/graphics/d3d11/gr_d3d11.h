@@ -8,6 +8,7 @@
 #include <common/DynamicLinkLibrary.h>
 #include <xlog/xlog.h>
 #include "../../rf/gr/gr.h"
+#include "../../vr/vr.h"
 #include "gr_d3d11_transform.h"
 
 namespace rf
@@ -108,6 +109,7 @@ namespace gr::d3d11
         void finish_vr_hud();
         void mirror_vr_eye(ID3D11ShaderResourceView* source_view,
             int source_width, int source_height);
+        void compose_winlatorxr_frame(const afvr::WinlatorXrComposeInfo& info);
         void end_vr_frame();
         [[nodiscard]] bool copy_presented_target(ID3D11Texture2D* destination);
 
@@ -158,6 +160,14 @@ namespace gr::d3d11
         rf::Vector3 vr_active_eye_position_{};
         rf::Matrix3 vr_active_eye_orientation_{};
         ComPtr<ID3D11Buffer> vr_mirror_vertex_buffer_;
+        ComPtr<ID3D11BlendState> winlatorxr_opaque_blend_state_;
+        ComPtr<ID3D11BlendState> winlatorxr_hud_blend_state_;
+        ComPtr<ID3D11Buffer> winlatorxr_hud_vertex_buffer_;
+        ComPtr<ID3D11SamplerState> winlatorxr_hud_sampler_;
+        ComPtr<ID3D11Buffer> winlatorxr_screen_vertex_buffer_;
+        ComPtr<ID3D11Texture2D> winlatorxr_sync_texture_;
+        int winlatorxr_sync_value_ = -1;
+        bool winlatorxr_compose_logged_ = false;
         ComPtr<ID3D11Buffer> vr_world_debug_vertex_buffer_;
         bool vr_world_debug_renderer_logged_ = false;
         bool vr_mirror_logged_ = false;

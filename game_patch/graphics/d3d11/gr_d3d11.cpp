@@ -1,3 +1,4 @@
+#include <array>
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -681,8 +682,14 @@ namespace gr::d3d11
         const bool vr_menu_active = afvr::is_menu_capture_active();
         const bool vr_scope_active = afvr::is_scope_capture_active();
         const bool vr_flat_quad_active = vr_menu_active || vr_scope_active;
-        const bool vr_desktop_update = vr_session_running &&
-            afvr::should_update_desktop_mirror();
+        // WinlatorXR has no compositor: every frame is presented, either as a
+        // side-by-side stereo composite or as the flat native image.
+        const bool winlatorxr = afvr::is_winlatorxr_active();
+        afvr::WinlatorXrComposeInfo winlatorxr_compose{};
+        const bool winlatorxr_stereo = winlatorxr &&
+            afvr::get_winlatorxr_compose_info(winlatorxr_compose);
+        const bool vr_desktop_update = winlatorxr || (vr_session_running &&
+            afvr::should_update_desktop_mirror());
         // Pace the CPU against the GPU's presentation queue before we do any
         // end-of-frame work. This is the canonical placement for the frame-latency
         // waitable object (MSFT samples wait at frame-start); it gates Present()
@@ -711,14 +718,19 @@ namespace gr::d3d11
         dyn_geo_renderer_->flush();
         entity_shadow_renderer_->render_debug_overlay(context_);
         entity_shadow_renderer_->unbind_shadow_resources(context_);
-        if (msaa_render_target_ &&
+        if (msaa_render_target_ && !winlatorxr_stereo &&
             (!vr_session_running || vr_flat_quad_active || vr_desktop_update)) {
             // Resolve MSAA into scene_texture_ unconditionally. The final copy to
             // back_buffer_ happens below — either via the gamma pass, or via a
             // CopyResource when the gamma pass is skipped.
             context_->ResolveSubresource(scene_texture_, 0, msaa_render_target_, 0, swap_chain_format);
         }
-        if (vr_session_running && !vr_flat_quad_active && !vr_desktop_update) {
+        if (winlatorxr_stereo) {
+            // Both eyes (and the HUD) were rendered into AFVR targets; compose
+            // them side by side as the headset image.
+            compose_winlatorxr_frame(winlatorxr_compose);
+        }
+        else if (vr_session_running && !vr_flat_quad_active && !vr_desktop_update) {
             // The headset already received both projection images and the HUD
             // directly through OpenXR. Skip redundant desktop image work on
             // frames that are not part of the throttled monitor stream.
@@ -750,6 +762,16 @@ namespace gr::d3d11
         else if (vr_scope_active) {
             afvr::submit_scope_frame();
         }
+        bool winlatorxr_screen = false;
+        if (winlatorxr && vr_flat_quad_active && !winlatorxr_stereo) {
+            // The menu/scope image was copied to the virtual screen texture;
+            // replace the flat back buffer with the stereo screen view.
+            winlatorxr_screen = afvr::get_winlatorxr_compose_info(winlatorxr_compose) &&
+                winlatorxr_compose.screen_view;
+            if (winlatorxr_screen) {
+                compose_winlatorxr_frame(winlatorxr_compose);
+            }
+        }
 
         // Most headset frames never touch DXGI. The monitor is updated at about
         // 30 Hz only, after the OpenXR submission has completed, and Present is
@@ -767,11 +789,16 @@ namespace gr::d3d11
         if (allow_tearing_ && sync_interval == 0) {
             present_flags |= DXGI_PRESENT_ALLOW_TEARING;
         }
-        if (vr_session_running) {
+        if (vr_session_running && !winlatorxr) {
             present_flags |= DXGI_PRESENT_DO_NOT_WAIT;
         }
         const auto present_start = std::chrono::steady_clock::now();
         const HRESULT present_result = swap_chain_->Present(sync_interval, present_flags);
+        if (winlatorxr) {
+            afvr::winlatorxr_frame_presented(winlatorxr_stereo || winlatorxr_screen);
+            afvr::winlatorxr_note_present_ms(std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - present_start).count());
+        }
         if (vr_session_running && present_result == DXGI_ERROR_WAS_STILL_DRAWING) {
             if (!vr_present_queue_busy_logged_) {
                 vr_present_queue_busy_logged_ = true;
@@ -1176,7 +1203,8 @@ namespace gr::d3d11
                 destination_desc.Format);
         }
         else {
-            context_->CopyResource(destination, back_buffer_);
+            // Mip 0 only: WinlatorXR's menu screen texture carries a mip chain.
+            context_->CopySubresourceRegion(destination, 0, 0, 0, 0, back_buffer_, 0, nullptr);
         }
         static bool flat_quad_copy_logged = false;
         if (!flat_quad_copy_logged) {
@@ -1257,6 +1285,228 @@ namespace gr::d3d11
             vr_mirror_logged_ = true;
             xlog::info(
                 "[AFVR] Desktop mirror restored at 30 Hz on a best-effort presentation path");
+        }
+    }
+
+    void Renderer::compose_winlatorxr_frame(const afvr::WinlatorXrComposeInfo& info)
+    {
+        dyn_geo_renderer_->flush();
+        if (!vr_mirror_vertex_buffer_) {
+            constexpr GpuTransformedVertex vertices[] = {
+                {-1.0f,  1.0f, 0.0f, 1.0f, -1, 0.0f, 0.0f},
+                { 1.0f,  1.0f, 0.0f, 1.0f, -1, 1.0f, 0.0f},
+                {-1.0f, -1.0f, 0.0f, 1.0f, -1, 0.0f, 1.0f},
+                { 1.0f, -1.0f, 0.0f, 1.0f, -1, 1.0f, 1.0f},
+            };
+            D3D11_BUFFER_DESC buffer_desc{};
+            buffer_desc.ByteWidth = sizeof(vertices);
+            buffer_desc.Usage = D3D11_USAGE_IMMUTABLE;
+            buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+            D3D11_SUBRESOURCE_DATA initial_data{};
+            initial_data.pSysMem = vertices;
+            DF_GR_D3D11_CHECK_HR(device_->CreateBuffer(
+                &buffer_desc, &initial_data, &vr_mirror_vertex_buffer_));
+        }
+        if (!winlatorxr_opaque_blend_state_) {
+            // WinlatorXR composites the frame with source alpha (passthrough
+            // shows through alpha < 1), so the eyes and HUD never write alpha;
+            // the back buffer is cleared to opaque black first.
+            D3D11_BLEND_DESC desc{};
+            desc.RenderTarget[0].BlendEnable = FALSE;
+            desc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+            desc.RenderTarget[0].DestBlend = D3D11_BLEND_ZERO;
+            desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+            desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+            desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+            desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+            desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_RED |
+                D3D11_COLOR_WRITE_ENABLE_GREEN | D3D11_COLOR_WRITE_ENABLE_BLUE;
+            DF_GR_D3D11_CHECK_HR(device_->CreateBlendState(&desc, &winlatorxr_opaque_blend_state_));
+            // Same math as the OpenXR quad layer without the UNPREMULTIPLIED
+            // flag: premultiplied alpha. RF's blend states never write alpha,
+            // so the HUD target keeps alpha 0 and is effectively additive.
+            desc.RenderTarget[0].BlendEnable = TRUE;
+            desc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+            desc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+            DF_GR_D3D11_CHECK_HR(device_->CreateBlendState(&desc, &winlatorxr_hud_blend_state_));
+        }
+        if (!winlatorxr_sync_texture_) {
+            D3D11_TEXTURE2D_DESC desc{};
+            desc.Width = 10;
+            desc.Height = 10;
+            desc.MipLevels = 1;
+            desc.ArraySize = 1;
+            desc.Format = swap_chain_format;
+            desc.SampleDesc.Count = 1;
+            desc.Usage = D3D11_USAGE_DEFAULT;
+            DF_GR_D3D11_CHECK_HR(device_->CreateTexture2D(&desc, nullptr, &winlatorxr_sync_texture_));
+            winlatorxr_sync_value_ = -1;
+        }
+
+        if (!winlatorxr_hud_vertex_buffer_) {
+            D3D11_BUFFER_DESC buffer_desc{};
+            buffer_desc.ByteWidth = sizeof(GpuTransformedVertex) * 8;
+            buffer_desc.Usage = D3D11_USAGE_DYNAMIC;
+            buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+            buffer_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+            DF_GR_D3D11_CHECK_HR(device_->CreateBuffer(
+                &buffer_desc, nullptr, &winlatorxr_hud_vertex_buffer_));
+            D3D11_SAMPLER_DESC sampler_desc{};
+            sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+            sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+            sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+            sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+            sampler_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+            sampler_desc.MaxLOD = D3D11_FLOAT32_MAX;
+            DF_GR_D3D11_CHECK_HR(device_->CreateSamplerState(&sampler_desc, &winlatorxr_hud_sampler_));
+        }
+        if (info.hud_view) {
+            if (info.hud_generate_mips) {
+                context_->GenerateMips(info.hud_view);
+            }
+            const float crop = std::clamp(info.hud_crop, 0.0f, 0.5f);
+            const float strip_u[2][2] = {{0.0f, crop}, {1.0f - crop, 1.0f}};
+            D3D11_MAPPED_SUBRESOURCE mapped{};
+            if (SUCCEEDED(context_->Map(winlatorxr_hud_vertex_buffer_, 0,
+                    D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+                auto* vertices = static_cast<GpuTransformedVertex*>(mapped.pData);
+                for (int strip = 0; strip < 2; ++strip) {
+                    const float u0 = strip_u[strip][0];
+                    const float u1 = strip_u[strip][1];
+                    vertices[strip * 4 + 0] = {-1.0f,  1.0f, 0.0f, 1.0f, -1, u0, 0.0f};
+                    vertices[strip * 4 + 1] = { 1.0f,  1.0f, 0.0f, 1.0f, -1, u1, 0.0f};
+                    vertices[strip * 4 + 2] = {-1.0f, -1.0f, 0.0f, 1.0f, -1, u0, 1.0f};
+                    vertices[strip * 4 + 3] = { 1.0f, -1.0f, 0.0f, 1.0f, -1, u1, 1.0f};
+                }
+                context_->Unmap(winlatorxr_hud_vertex_buffer_, 0);
+            }
+        }
+
+        D3D11_TEXTURE2D_DESC target_desc{};
+        back_buffer_->GetDesc(&target_desc);
+        const float half_width = static_cast<float>(target_desc.Width) * 0.5f;
+        const float height = static_cast<float>(target_desc.Height);
+
+        render_context_->set_render_target(back_buffer_rtv_, nullptr);
+        constexpr float opaque_black[] = {0.0f, 0.0f, 0.0f, 1.0f};
+        context_->ClearRenderTargetView(back_buffer_rtv_, opaque_black);
+        render_context_->set_vertex_shader(
+            shader_manager_->get_vertex_shader(VertexShaderId::transformed));
+        render_context_->set_pixel_shader(shader_manager_->get_pixel_shader(PixelShaderId::ui));
+        render_context_->set_vertex_buffer(vr_mirror_vertex_buffer_, sizeof(GpuTransformedVertex));
+        render_context_->set_primitive_topology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        render_context_->set_cull_mode(D3D11_CULL_NONE);
+        render_context_->set_depth_stencil_state(
+            state_manager_->lookup_depth_stencil_state(rf::gr::ZBUFFER_TYPE_NONE));
+        auto* sampler = state_manager_->lookup_sampler_state(rf::gr::TEXTURE_SOURCE_CLAMP, 0);
+        render_context_->set_sampler_states({sampler, sampler});
+
+        constexpr float blend_factor[] = {0.0f, 0.0f, 0.0f, 0.0f};
+        if (info.screen_view) {
+            if (!winlatorxr_screen_vertex_buffer_) {
+                D3D11_BUFFER_DESC buffer_desc{};
+                buffer_desc.ByteWidth = sizeof(GpuTransformedVertex) * 8;
+                buffer_desc.Usage = D3D11_USAGE_DYNAMIC;
+                buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+                buffer_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+                DF_GR_D3D11_CHECK_HR(device_->CreateBuffer(
+                    &buffer_desc, nullptr, &winlatorxr_screen_vertex_buffer_));
+            }
+            context_->GenerateMips(info.screen_view);
+            D3D11_MAPPED_SUBRESOURCE mapped{};
+            if (SUCCEEDED(context_->Map(winlatorxr_screen_vertex_buffer_, 0,
+                    D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+                auto* vertices = static_cast<GpuTransformedVertex*>(mapped.pData);
+                constexpr float uvs[4][2] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}, {1.0f, 1.0f}};
+                for (int eye = 0; eye < 2; ++eye) {
+                    for (int corner = 0; corner < 4; ++corner) {
+                        const auto& clip = info.screen_clip[eye][corner];
+                        vertices[eye * 4 + corner] = {clip[0], clip[1], clip[2], clip[3], -1,
+                            uvs[corner][0], uvs[corner][1]};
+                    }
+                }
+                context_->Unmap(winlatorxr_screen_vertex_buffer_, 0);
+            }
+            render_context_->set_vertex_buffer(
+                winlatorxr_screen_vertex_buffer_, sizeof(GpuTransformedVertex));
+            render_context_->set_sampler_states({winlatorxr_hud_sampler_, sampler});
+            context_->OMSetBlendState(winlatorxr_opaque_blend_state_, blend_factor, 0xFFFFFFFF);
+            context_->PSSetShaderResources(0, 1, &info.screen_view);
+            for (int eye = 0; eye < 2; ++eye) {
+                D3D11_VIEWPORT viewport{};
+                viewport.TopLeftX = half_width * static_cast<float>(eye);
+                viewport.Width = half_width;
+                viewport.Height = height;
+                viewport.MaxDepth = 1.0f;
+                context_->RSSetViewports(1, &viewport);
+                context_->Draw(4, eye * 4);
+            }
+        }
+        for (int eye = 0; eye < 2; ++eye) {
+            ID3D11ShaderResourceView* eye_view = info.eye_views[eye];
+            if (!eye_view) {
+                continue;
+            }
+            // Each eye fills its half; WinlatorXR stretches the half back over
+            // the eye FOV we declared.
+            D3D11_VIEWPORT viewport{};
+            viewport.TopLeftX = half_width * static_cast<float>(eye);
+            viewport.Width = half_width;
+            viewport.Height = height;
+            viewport.MaxDepth = 1.0f;
+            context_->RSSetViewports(1, &viewport);
+            context_->OMSetBlendState(winlatorxr_opaque_blend_state_, blend_factor, 0xFFFFFFFF);
+            context_->PSSetShaderResources(0, 1, &eye_view);
+            context_->Draw(4, 0);
+
+            if (info.hud_view) {
+                // Each HUD strip (eye NDC rectangle) becomes a viewport inside
+                // this half; the strip vertices select its part of the image.
+                for (int strip = 0; strip < 2; ++strip) {
+                    const auto& rect = info.hud_rect[eye][strip];
+                    D3D11_VIEWPORT hud_viewport{};
+                    hud_viewport.TopLeftX = viewport.TopLeftX + (rect[0] + 1.0f) * 0.5f * half_width;
+                    hud_viewport.Width = (rect[1] - rect[0]) * 0.5f * half_width;
+                    hud_viewport.TopLeftY = (1.0f - rect[3]) * 0.5f * height;
+                    hud_viewport.Height = (rect[3] - rect[2]) * 0.5f * height;
+                    hud_viewport.MaxDepth = 1.0f;
+                    if (hud_viewport.Width <= 1.0f || hud_viewport.Height <= 1.0f) {
+                        continue;
+                    }
+                    context_->RSSetViewports(1, &hud_viewport);
+                    context_->OMSetBlendState(winlatorxr_hud_blend_state_, blend_factor, 0xFFFFFFFF);
+                    render_context_->set_vertex_buffer(
+                        winlatorxr_hud_vertex_buffer_, sizeof(GpuTransformedVertex));
+                    render_context_->set_sampler_states({winlatorxr_hud_sampler_, sampler});
+                    context_->PSSetShaderResources(0, 1, &info.hud_view);
+                    context_->Draw(4, strip * 4);
+                }
+                render_context_->set_vertex_buffer(vr_mirror_vertex_buffer_, sizeof(GpuTransformedVertex));
+                render_context_->set_sampler_states({sampler, sampler});
+            }
+        }
+        ID3D11ShaderResourceView* null_view = nullptr;
+        context_->PSSetShaderResources(0, 1, &null_view);
+        render_context_->set_textures(-1, -1);
+
+        // HMD_SYNC stamp: WinlatorXR samples screen pixel (0,0) and, when G == 0
+        // and A > 0, reprojects with the pose whose sync value is in R.
+        context_->OMSetRenderTargets(0, nullptr, nullptr);
+        if (winlatorxr_sync_value_ != info.sync_value) {
+            winlatorxr_sync_value_ = info.sync_value;
+            std::array<uint32_t, 10 * 10> pixels{};
+            // B8G8R8A8: bytes B, G, R, A.
+            pixels.fill(0xFF000000u | (static_cast<uint32_t>(info.sync_value & 0xFF) << 16));
+            context_->UpdateSubresource(winlatorxr_sync_texture_, 0, nullptr,
+                pixels.data(), 10 * sizeof(uint32_t), 0);
+        }
+        context_->CopySubresourceRegion(back_buffer_, 0, 0, 0, 0, winlatorxr_sync_texture_, 0, nullptr);
+        render_context_->invalidate_cached_state();
+
+        if (!winlatorxr_compose_logged_) {
+            winlatorxr_compose_logged_ = true;
+            xlog::info("[AFVR][WinlatorXR] Side-by-side frame composed into the {}x{} back buffer{}",
+                target_desc.Width, target_desc.Height, info.hud_view ? " with HUD" : "");
         }
     }
 

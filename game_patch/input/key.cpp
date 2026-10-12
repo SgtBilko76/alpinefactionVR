@@ -26,6 +26,7 @@
 #include "../multi/vote_client.h"
 #include "../misc/vote_panel.h"
 #include "../os/console.h"
+#include "../vr/vr.h"
 #include "input.h"
 
 static int starting_alpine_control_index = -1;
@@ -584,6 +585,11 @@ FunHook<void(int, int, int)> key_msg_handler_hook{
             case WM_SYSKEYDOWN:
             case WM_KEYUP:
             case WM_SYSKEYUP: {
+                // WinlatorXR turns controller buttons into desktop key events;
+                // AFVR already injects every VR action itself.
+                if (afvr::should_block_desktop_keyboard_input()) {
+                    return;
+                }
                 // For num pads, RF requires `KF_EXTENDED` to be set.
                 if (w_param == VK_PRIOR
                     || w_param == VK_NEXT

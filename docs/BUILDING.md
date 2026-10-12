@@ -63,6 +63,15 @@ cd build
 cmake .. -DCMAKE_TOOLCHAIN_FILE=../cmake/mingw-ubuntu.cmake -DCMAKE_BUILD_TYPE=Release
 ```
 
+Shaders are compiled through Wine. Wine's builtin `d3dcompiler` produces bloated, fully unrolled bytecode
+(the main pixel shader grows from ~14 KB to ~330 KB) that hangs mobile GPUs such as the Quest under
+WinlatorXR. For builds you intend to run, pass a Microsoft x86 `d3dcompiler_47.dll` (from a Windows SDK or
+Visual Studio installation):
+
+```
+cmake .. -DAF_NATIVE_D3DCOMPILER=/path/to/x86/d3dcompiler_47.dll
+```
+
 Start build:
 
 ```

@@ -11,6 +11,12 @@ Alpine Faction VR 1.1 beta is a tested virtual-reality implementation for the 20
 
 The current release is **Alpine Faction VR 1.1 beta (VDXR fix)**.
 
+## Standalone Meta Quest 3 (WinlatorXR) - Beta 0.1.0
+
+This fork also runs **standalone on a Meta Quest 3** through WinlatorXR (Wine + Box64 + DXVK), without a PC. Inside a WinlatorXR container with the XR API enabled, the game uses WinlatorXR's XrAPI instead of OpenXR: both eyes are drawn side by side into the 2388x1080 window, tracking and controllers come over XrAPI, and menus use WinlatorXR's 2D screen.
+
+Download `RedFactionVR-Quest-WinlatorXR-v0.1.0-beta.zip` from the Releases page and follow the included `README-WinlatorXR.txt`. Quest-specific settings live in `afvr_winlatorxr.ini`. Building on Linux: see [docs/BUILDING.md](docs/BUILDING.md) (set `AF_NATIVE_D3DCOMPILER`) and `tools/make-winlatorxr-release.sh`.
+
 ## What's new in 1.1 beta
 
 - Updated the D3D11/OpenXR device configuration used by the verified VDXR build.

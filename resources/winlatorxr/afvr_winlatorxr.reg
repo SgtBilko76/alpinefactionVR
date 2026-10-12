@@ -1,0 +1,16 @@
+REGEDIT4
+
+[HKEY_CURRENT_USER\Software\Volition\Red Faction]
+"Resolution Width"=dword:00000954
+"Resolution Height"=dword:00000438
+"Resolution Bit Depth"=dword:00000020
+"Vsync"=dword:00000000
+
+[HKEY_CURRENT_USER\Software\Volition\Red Faction\Alpine Faction]
+"Window Mode"=dword:00000001
+"Renderer"=dword:00000002
+"Enable VR"=dword:00000001
+"Fast Start"=dword:00000001
+"Keep Launcher Open"=dword:00000000
+"Already Saw First Launch Window"=dword:00000001
+"Already Saw FF Link Prompt"=dword:00000001

@@ -177,7 +177,14 @@ float4 main(VsOutput input) : SV_TARGET
             light_color *= 2;
         }
         float3 pixel_pos = input.world_pos_and_depth.xyz;
-        for (int i = 0; i < num_point_lights; ++i) {
+        // Constant trip count with an early break: the Quest (DXVK/Turnip)
+        // GPU stalls for seconds per frame once a dynamic light (headlamp)
+        // is active; keep the loop provably bounded for that compiler.
+        int light_count = clamp((int)num_point_lights, 0, MAX_POINT_LIGHTS);
+        [loop] for (int i = 0; i < MAX_POINT_LIGHTS; ++i) {
+            if (i >= light_count) {
+                break;
+            }
             float ltype = point_lights[i].light_type;
             float dist;
             float3 light_dir;

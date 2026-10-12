@@ -13,6 +13,7 @@
 #include "gr_d3d11_texture.h"
 #include "gr_d3d11_state.h"
 #include "gr_d3d11_shader.h"
+#include "../../vr/vr.h"
 
 namespace gr::d3d11
 {
@@ -293,6 +294,9 @@ namespace gr::d3d11
                 gpu_index++;
             }
             data.num_point_lights = static_cast<float>(gpu_index);
+            if (afvr::winlatorxr_dynamic_lights_disabled()) {
+                data.num_point_lights = 0.0f;
+            }
         }
         else {
             data.ambient_light = {1.0f, 1.0f, 1.0f};

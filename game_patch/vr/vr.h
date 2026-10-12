@@ -7,6 +7,8 @@ namespace rf
     struct Vector3;
 }
 
+struct ID3D11ShaderResourceView;
+
 namespace afvr
 {
     enum class TimingPhase
@@ -123,4 +125,48 @@ namespace afvr
     [[nodiscard]] bool get_visual_body_pose(rf::Vector3& position,
         rf::Matrix3& orientation);
     [[nodiscard]] bool is_primary_trigger_active();
+
+    // WinlatorXR (XrAPI over UDP) backend for standalone headsets running the
+    // game under Wine. There is no compositor: both eyes are composed side by
+    // side into the desktop back buffer, which WinlatorXR shows in the HMD.
+    [[nodiscard]] bool is_winlatorxr_active();
+
+    struct WinlatorXrComposeInfo
+    {
+        ID3D11ShaderResourceView* eye_views[2] = {nullptr, nullptr};
+        ID3D11ShaderResourceView* hud_view = nullptr;
+        // The HUD is drawn as two strips: the left part of the HUD image
+        // (u 0..hud_crop) and the right part (u 1-hud_crop..1), each placed in
+        // its own rectangle so the empty middle of the HUD is dropped.
+        // Rectangles are in eye NDC (-1..1, +y up): left, right, bottom, top.
+        float hud_crop = 0.5f;
+        float hud_rect[2][2][4] = {}; // [eye][strip][edge]
+        // True when hud_view has a mip chain that must be regenerated.
+        bool hud_generate_mips = false;
+        // Menus and the native rifle scope: the flat game image shown on a
+        // virtual screen fixed in the room. Corners are clip-space positions
+        // (x, y, z, w) per eye in triangle-strip order TL, TR, BL, BR.
+        ID3D11ShaderResourceView* screen_view = nullptr;
+        float screen_clip[2][4][4] = {};
+        // XrAPI HMD_SYNC value of the pose this frame was rendered with.
+        int sync_value = 0;
+    };
+
+    // Returns true when this RF frame rendered a stereo world frame that must
+    // be composed into the back buffer before Present.
+    [[nodiscard]] bool get_winlatorxr_compose_info(WinlatorXrComposeInfo& info);
+
+    // Called once per presented frame. Reports the presented mode back to
+    // WinlatorXR (stereo projection vs flat virtual screen).
+    void winlatorxr_frame_presented(bool stereo);
+
+    // GPU stall guard: a Present blocking for seconds means the headset GPU is
+    // hanging, which reboots the Quest within a minute. Repeated stalls turn
+    // the headlamp off and stop sending dynamic lights to the pixel shader.
+    void winlatorxr_note_present_ms(double ms);
+    [[nodiscard]] bool winlatorxr_dynamic_lights_disabled();
+
+    // WinlatorXR synthesizes desktop keyboard events from controller buttons.
+    // AFVR injects all VR actions itself, so those events are dropped.
+    [[nodiscard]] bool should_block_desktop_keyboard_input();
 }

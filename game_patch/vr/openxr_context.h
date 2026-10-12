@@ -69,31 +69,39 @@ namespace afvr
     {
     public:
         OpenXrContext() = default;
-        ~OpenXrContext();
+        virtual ~OpenXrContext();
 
         OpenXrContext(const OpenXrContext&) = delete;
         OpenXrContext& operator=(const OpenXrContext&) = delete;
 
-        [[nodiscard]] bool initialize(ID3D11Device* device);
-        [[nodiscard]] bool poll_events();
-        [[nodiscard]] bool sync_actions();
-        [[nodiscard]] bool wait_frame();
-        [[nodiscard]] bool render_frame(const OpenXrEyeRenderCallback& render_eye,
+        [[nodiscard]] virtual bool initialize(ID3D11Device* device);
+        [[nodiscard]] virtual bool poll_events();
+        [[nodiscard]] virtual bool sync_actions();
+        [[nodiscard]] virtual bool wait_frame();
+        [[nodiscard]] virtual bool render_frame(const OpenXrEyeRenderCallback& render_eye,
             const OpenXrHudRenderCallback& render_hud = {});
-        [[nodiscard]] bool render_menu_frame(const OpenXrMenuRenderCallback& render_menu);
-        [[nodiscard]] bool render_scope_frame(const OpenXrMenuRenderCallback& render_scope);
-        void set_menu_active(bool active);
-        void set_scope_active(bool active);
-        void set_hud_active(bool active);
-        void reset_fixed_quad_poses();
-        [[nodiscard]] bool get_menu_pointer(float& u, float& v) const;
-        void shutdown();
+        [[nodiscard]] virtual bool render_menu_frame(const OpenXrMenuRenderCallback& render_menu);
+        [[nodiscard]] virtual bool render_scope_frame(const OpenXrMenuRenderCallback& render_scope);
+        virtual void set_menu_active(bool active);
+        virtual void set_scope_active(bool active);
+        virtual void set_hud_active(bool active);
+        virtual void reset_fixed_quad_poses();
+        [[nodiscard]] virtual bool get_menu_pointer(float& u, float& v) const;
+        virtual void shutdown();
 
-        [[nodiscard]] bool is_initialized() const { return instance_ != XR_NULL_HANDLE; }
+        [[nodiscard]] virtual bool is_initialized() const { return instance_ != XR_NULL_HANDLE; }
         [[nodiscard]] bool is_session_running() const { return session_running_; }
         [[nodiscard]] XrSessionState session_state() const { return session_state_; }
         [[nodiscard]] const OpenXrInputState& input_state() const { return input_state_; }
         [[nodiscard]] bool is_steamvr_runtime() const { return steamvr_runtime_; }
+        // True for the WinlatorXR XrAPI backend (standalone headsets running the
+        // game under Wine), which composes stereo into the desktop back buffer.
+        [[nodiscard]] virtual bool is_winlatorxr() const { return false; }
+
+    protected:
+        OpenXrInputState input_state_{};
+        XrSessionState session_state_ = XR_SESSION_STATE_UNKNOWN;
+        bool session_running_ = false;
 
     private:
         void create_instance();
@@ -144,10 +152,7 @@ namespace afvr
         XrPath index_interaction_profile_ = XR_NULL_PATH;
         std::array<XrSpace, 2> grip_spaces_{};
         std::array<XrSpace, 2> aim_spaces_{};
-        OpenXrInputState input_state_{};
-        XrSessionState session_state_ = XR_SESSION_STATE_UNKNOWN;
         XrEnvironmentBlendMode environment_blend_mode_ = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-        bool session_running_ = false;
         bool exit_requested_ = false;
         bool steamvr_runtime_ = false;
         bool display_refresh_rate_supported_ = false;

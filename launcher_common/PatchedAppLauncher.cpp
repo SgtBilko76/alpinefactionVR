@@ -30,6 +30,13 @@ inline bool is_no_gui_mode()
     return GetSystemMetrics(SM_CMONITORS) == 0;
 }
 
+// Inside a WinlatorXR container the launcher is started from a shortcut whose
+// session ends with the launched command, so it must stay alive with the game.
+inline bool is_winlatorxr_container()
+{
+    return GetFileAttributesA("Z:\\tmp\\xr\\system") != INVALID_FILE_ATTRIBUTES;
+}
+
 std::string PatchedAppLauncher::get_patch_dll_path()
 {
     auto buf = get_module_pathname(nullptr);
@@ -101,8 +108,8 @@ void PatchedAppLauncher::launch()
         proc_launcher.resume_main_thread();
         xlog::info("Process launched successfully");
 
-        // Wait for child process in Wine No GUI mode
-        if (is_no_gui_mode()) {
+        // Wait for child process in Wine No GUI mode and in WinlatorXR containers
+        if (is_no_gui_mode() || is_winlatorxr_container()) {
             xlog::info("Waiting for app to close");
             proc_launcher.wait(INFINITE);
         }

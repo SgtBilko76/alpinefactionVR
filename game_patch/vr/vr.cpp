@@ -37,6 +37,7 @@
 
 #ifdef AF_ENABLE_OPENXR
 #include "openxr_context.h"
+#include "winlatorxr_context.h"
 #endif
 
 namespace afvr
@@ -1803,13 +1804,25 @@ namespace afvr
             }
         }
 
+        // WinlatorXR has no desktop reticle in the headset image; a small dot
+        // at the end of the (invisible) laser trace serves as the crosshair.
+        bool aim_dot_enabled()
+        {
+#ifdef AF_ENABLE_OPENXR
+            return g_openxr && g_openxr->is_winlatorxr() &&
+                static_cast<WinlatorXrContext*>(g_openxr)->show_crosshair();
+#else
+            return false;
+#endif
+        }
+
         void update_laser_trace()
         {
             g_laser_trace_frame = rf::frame_count;
             g_laser_trace_valid = false;
             g_laser_trace_hit = false;
-            if (!g_laser_sight_enabled || !g_laser_emitter_pose_valid ||
-                !current_weapon_supports_laser()) {
+            if ((!g_laser_sight_enabled && !aim_dot_enabled()) ||
+                !g_laser_emitter_pose_valid || !current_weapon_supports_laser()) {
                 return;
             }
 
@@ -1947,8 +1960,24 @@ namespace afvr
                 return;
             }
 
-            render_d3d11_world_laser_beam(
-                g_laser_trace_start, g_laser_trace_end);
+            if (g_laser_sight_enabled) {
+                render_d3d11_world_laser_beam(
+                    g_laser_trace_start, g_laser_trace_end);
+            }
+            if (aim_dot_enabled()) {
+                const rf::Vector3 ray = g_laser_trace_end - g_laser_trace_start;
+                const float distance = ray.len();
+                if (distance > 0.05f) {
+                    const rf::Vector3 direction = ray / distance;
+                    // Constant angular size (~0.6 degrees) seen from the weapon,
+                    // pulled slightly off the surface to stay visible.
+                    const float half_size = std::clamp(distance * 0.005f, 0.004f, 1.5f);
+                    const rf::Vector3 center = g_laser_trace_end -
+                        direction * std::min(half_size * 2.0f, distance * 0.5f);
+                    render_d3d11_world_debug_beam(center - direction * half_size,
+                        center + direction * half_size, rf::Color{90, 255, 90, 230}, half_size);
+                }
+            }
         }
 
         void render_fire_origin_debug()
@@ -3353,6 +3382,14 @@ namespace afvr
     void register_command_line()
     {
         get_vr_command_line_param();
+#ifdef AF_ENABLE_OPENXR
+        // RF has not parsed its command line yet; DXVK reads its environment
+        // when the swap chain is created, so prepare the process now.
+        if (std::string_view{GetCommandLineA()}.find(" -vr") != std::string_view::npos &&
+            winlatorxr_runtime_detected()) {
+            winlatorxr_prepare_process();
+        }
+#endif
     }
 
     void install_render_hook()
@@ -3526,15 +3563,23 @@ namespace afvr
             return;
         }
 
-        auto* openxr = new OpenXrContext;
+        OpenXrContext* openxr = nullptr;
+        if (winlatorxr_runtime_detected()) {
+            xlog::info("[AFVR] WinlatorXR container detected; using the XrAPI backend");
+            openxr = new WinlatorXrContext;
+        }
+        else {
+            openxr = new OpenXrContext;
+        }
         if (!openxr->initialize(binding.device)) {
             delete openxr;
-            xlog::warn("[AFVR] OpenXR initialization failed; continuing in flat mode");
+            xlog::warn("[AFVR] VR runtime initialization failed; continuing in flat mode");
             return;
         }
 
         g_openxr = openxr;
-        xlog::info("[AFVR] OpenXR bootstrap initialized");
+        xlog::info("[AFVR] {} bootstrap initialized",
+            g_openxr->is_winlatorxr() ? "WinlatorXR" : "OpenXR");
 #else
         xlog::warn("[AFVR] This build was compiled without OpenXR support; continuing in flat mode");
 #endif
@@ -3731,7 +3776,8 @@ namespace afvr
                 input.right_trigger >= 0.55f;
             const bool index_alt_trigger_pressed =
                 g_openxr->is_session_running() &&
-                input.index_profile_active && input.left_trigger >= 0.55f;
+                (input.index_profile_active || g_openxr->is_winlatorxr()) &&
+                input.left_trigger >= 0.55f;
             g_trigger_just_pressed =
                 trigger_pressed && !g_previous_trigger_pressed;
             if (g_menu_capture_active && g_trigger_just_pressed) {
@@ -3921,7 +3967,7 @@ namespace afvr
                 g_roomscale_world_correction = {};
                 g_roomscale_collision_frame = -1;
             }
-            if (!copy_d3d11_menu(menu.texture) && !copy_failure_logged) {
+            if (menu.texture && !copy_d3d11_menu(menu.texture) && !copy_failure_logged) {
                 copy_failure_logged = true;
                 xlog::error("[AFVR] RF menu target could not be copied to the OpenXR quad");
             }
@@ -3978,7 +4024,7 @@ namespace afvr
                 update_weapon_pose(
                     g_scope_base_eye_position, g_scope_player_view_base);
             }
-            if (!copy_d3d11_menu(scope.texture) && !copy_failure_logged) {
+            if (scope.texture && !copy_d3d11_menu(scope.texture) && !copy_failure_logged) {
                 copy_failure_logged = true;
                 xlog::error(
                     "[AFVR] Native rifle scope target could not be copied to the OpenXR quad");
@@ -4198,7 +4244,7 @@ namespace afvr
     bool should_update_desktop_mirror()
     {
 #ifdef AF_ENABLE_OPENXR
-        if (!g_openxr || !g_openxr->is_session_running()) {
+        if (!g_openxr || !g_openxr->is_session_running() || g_openxr->is_winlatorxr()) {
             return false;
         }
         if (g_desktop_mirror_decision_frame == rf::frame_count) {
@@ -4461,6 +4507,78 @@ namespace afvr
     {
 #ifdef AF_ENABLE_OPENXR
         return g_trigger_pressed;
+#else
+        return false;
+#endif
+    }
+
+    bool is_winlatorxr_active()
+    {
+#ifdef AF_ENABLE_OPENXR
+        return g_openxr && g_openxr->is_winlatorxr();
+#else
+        return false;
+#endif
+    }
+
+    bool get_winlatorxr_compose_info(WinlatorXrComposeInfo& info)
+    {
+#ifdef AF_ENABLE_OPENXR
+        if (!is_winlatorxr_active() || !g_openxr->is_session_running()) {
+            return false;
+        }
+        return static_cast<WinlatorXrContext*>(g_openxr)->take_compose_info(info);
+#else
+        (void)info;
+        return false;
+#endif
+    }
+
+    void winlatorxr_frame_presented(bool stereo)
+    {
+#ifdef AF_ENABLE_OPENXR
+        if (is_winlatorxr_active()) {
+            static_cast<WinlatorXrContext*>(g_openxr)->frame_presented(stereo);
+        }
+#else
+        (void)stereo;
+#endif
+    }
+
+    namespace
+    {
+        int g_winlatorxr_stall_frames = 0;
+        bool g_winlatorxr_lights_disabled = false;
+    }
+
+    void winlatorxr_note_present_ms(double ms)
+    {
+        if (!is_winlatorxr_active() || g_winlatorxr_lights_disabled) {
+            return;
+        }
+        constexpr double stall_ms = 750.0;
+        g_winlatorxr_stall_frames = ms > stall_ms ? g_winlatorxr_stall_frames + 1 : 0;
+        if (g_winlatorxr_stall_frames < 2) {
+            return;
+        }
+        g_winlatorxr_lights_disabled = true;
+        if (rf::local_player_entity && rf::entity_headlamp_is_on(rf::local_player_entity)) {
+            rf::entity_headlamp_turn_off(rf::local_player_entity);
+        }
+        xlog::warn("[AFVR][WinlatorXR] GPU stall ({:.0f} ms Present, {} frames); headlamp off and "
+            "dynamic lights disabled to protect the headset", ms, g_winlatorxr_stall_frames);
+    }
+
+    bool winlatorxr_dynamic_lights_disabled()
+    {
+        return g_winlatorxr_lights_disabled;
+    }
+
+    bool should_block_desktop_keyboard_input()
+    {
+#ifdef AF_ENABLE_OPENXR
+        return is_winlatorxr_active() && g_openxr->is_session_running() &&
+            static_cast<WinlatorXrContext*>(g_openxr)->block_desktop_keyboard();
 #else
         return false;
 #endif

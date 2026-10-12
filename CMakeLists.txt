@@ -118,6 +118,10 @@ if(AF_ENABLE_OPENXR)
     if(MSVC)
         set_property(TARGET openxr_loader PROPERTY
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    else()
+        # MinGW's winapifamily.h lacks WINAPI_PARTITION_SYSTEM, which the
+        # loader's -Werror=undef turns into a hard error.
+        target_compile_options(openxr_loader PRIVATE -Wno-error=undef)
     endif()
 endif()
 

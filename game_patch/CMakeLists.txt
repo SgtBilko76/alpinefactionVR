@@ -331,6 +331,8 @@ if(AF_ENABLE_OPENXR)
     list(APPEND SRCS
         vr/openxr_context.cpp
         vr/openxr_context.h
+        vr/winlatorxr_context.cpp
+        vr/winlatorxr_context.h
     )
 endif()
 
