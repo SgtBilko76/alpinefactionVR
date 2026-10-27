@@ -423,6 +423,13 @@ namespace afvr
             else if (key == "cpu_affinity") settings.cpu_affinity = static_cast<long long>(std::strtoll(value.c_str(), nullptr, 0));
             else if (key == "menu_2d") settings.menu_2d = number != 0.0f;
             else if (key == "screen_width_m") settings.screen_width_m = std::clamp(number, 0.2f, 20.0f);
+            else if (key == "weapon_scale") settings.weapon_scale = std::clamp(number, 0.2f, 2.0f);
+            else if (key.rfind("weapon_scale_", 0) == 0) {
+                const int id = std::atoi(key.c_str() + 13);
+                if (id >= 0 && id < static_cast<int>(settings.weapon_scale_by_id.size())) {
+                    settings.weapon_scale_by_id[id] = std::clamp(number, 0.2f, 2.0f);
+                }
+            }
         }
         settings_ = settings;
 
@@ -452,6 +459,14 @@ namespace afvr
         xlog::info("[AFVR][WinlatorXR] Graphics: shadow_quality={} mesh_lighting={} lod_scale={:.2f} big_hud={}",
             g_alpine_game_config.shadow_quality, g_alpine_game_config.mesh_lighting_mode,
             g_alpine_game_config.lod_dist_scale, g_alpine_game_config.big_hud ? 1 : 0);
+        std::string weapon_overrides;
+        for (size_t id = 0; id < settings_.weapon_scale_by_id.size(); ++id) {
+            if (settings_.weapon_scale_by_id[id] > 0.0f) {
+                weapon_overrides += std::format(" {}={:.2f}", id, settings_.weapon_scale_by_id[id]);
+            }
+        }
+        xlog::info("[AFVR][WinlatorXR] Weapon scale {:.2f}; per weapon:{}",
+            settings_.weapon_scale, weapon_overrides.empty() ? " none" : weapon_overrides);
     }
 
     void WinlatorXrContext::receive_loop()

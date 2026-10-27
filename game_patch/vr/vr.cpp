@@ -135,6 +135,7 @@ namespace afvr
         int g_weapon_render_eye = -1;
         rf::Vector3 g_weapon_render_position{};
         rf::Matrix3 g_weapon_render_orientation{};
+        float g_weapon_render_scale = 1.0f;
         rf::Vector3 g_weapon_fire_position{};
         rf::Matrix3 g_weapon_fire_orientation{};
         bool g_laser_emitter_pose_valid = false;
@@ -649,6 +650,14 @@ namespace afvr
                 });
             return found != g_weapon_calibrations.end()
                 ? *found : g_fallback_weapon_calibration;
+        }
+
+        float current_weapon_scale(int weapon_id)
+        {
+            if (g_openxr && g_openxr->is_winlatorxr()) {
+                return static_cast<WinlatorXrContext*>(g_openxr)->weapon_scale(weapon_id);
+            }
+            return 1.0f;
         }
 
         const VrWeaponCalibration& weapon_calibration(int weapon_id)
@@ -1604,6 +1613,10 @@ namespace afvr
             const auto& calibration = weapon_calibration(g_current_weapon_id);
             const VrTwoHandCalibration* two_hand =
                 two_hand_calibration(g_current_weapon_id);
+            // Visual weapon size (WinlatorXR ini). The grip point stays in the
+            // hand, so every weapon-local offset past the grip is scaled.
+            g_weapon_render_scale = current_weapon_scale(g_current_weapon_id);
+            const float weapon_scale = g_weapon_render_scale;
 
             // Quest Touch's grip pose supplies the physical controller position,
             // while its aim pose supplies the barrel-compatible orientation that
@@ -1620,7 +1633,7 @@ namespace afvr
                 grip_anchor_orientation,
                 euler_rotation_matrix(calibration.pivot_rotation));
             g_weapon_render_position = grip_anchor_position - transform_direction(
-                g_weapon_render_orientation, calibration.pivot_position);
+                g_weapon_render_orientation, calibration.pivot_position * weapon_scale);
 
             // Compute the acquisition target from the current one-hand pose.
             // Once grabbed, retain the support grip until squeeze release even
@@ -1640,7 +1653,7 @@ namespace afvr
                             two_hand->support_fraction;
                 const rf::Vector3 support_target = g_weapon_render_position +
                     transform_direction(g_weapon_render_orientation,
-                        model_support_position);
+                        model_support_position * weapon_scale);
                 g_two_hand_support_available =
                     (support_grip_position - support_target).len() <=
                     two_hand->capture_radius;
@@ -1673,7 +1686,7 @@ namespace afvr
                         euler_rotation_matrix(calibration.pivot_rotation));
                     g_weapon_render_position = grip_anchor_position -
                         transform_direction(g_weapon_render_orientation,
-                            calibration.pivot_position);
+                            calibration.pivot_position * weapon_scale);
 
                     if (g_current_weapon_id >= 0 &&
                         g_current_weapon_id < static_cast<int>(g_two_hand_weapon_logged.size()) &&
@@ -1696,7 +1709,7 @@ namespace afvr
             // beam direction for every weapon.
             g_laser_emitter_position = g_weapon_render_position +
                 transform_direction(g_weapon_render_orientation,
-                    calibration.laser_position);
+                    calibration.laser_position * weapon_scale);
             const rf::Matrix3 laser_muzzle_orientation = compose_orientation(
                 g_weapon_render_orientation,
                 euler_rotation_matrix(calibration.muzzle_rotation));
@@ -1712,9 +1725,9 @@ namespace afvr
                 !g_weapon_calibration_logged[g_current_weapon_id]) {
                 g_weapon_calibration_logged[g_current_weapon_id] = true;
                 xlog::info(
-                    "[AFVR] Weapon {} uses {} VR calibration; final one/two-hand weapon root owns muzzle and laser emitter",
+                    "[AFVR] Weapon {} uses {} VR calibration at scale {:.2f}; final one/two-hand weapon root owns muzzle and laser emitter",
                     g_current_weapon_id,
-                    calibration.weapon_id >= 0 ? "stock" : "fallback");
+                    calibration.weapon_id >= 0 ? "stock" : "fallback", weapon_scale);
             }
         }
 
@@ -2208,9 +2221,16 @@ namespace afvr
                             xlog::info("[AFVR] weapon mesh render reached");
                         }
                         g_rendering_fpgun_body = true;
+                        // The D3D11 world matrix is built from these basis
+                        // vectors, so a uniform scale resizes the model about
+                        // its origin; the shaders renormalize normals.
+                        rf::Matrix3 scaled_orientation = g_weapon_render_orientation;
+                        scaled_orientation.rvec = scaled_orientation.rvec * g_weapon_render_scale;
+                        scaled_orientation.uvec = scaled_orientation.uvec * g_weapon_render_scale;
+                        scaled_orientation.fvec = scaled_orientation.fvec * g_weapon_render_scale;
                         g_player_fpgun_vmesh_render_hook.call_target(
                             mesh, &g_weapon_render_position,
-                            &g_weapon_render_orientation, params);
+                            &scaled_orientation, params);
                         g_rendering_fpgun_body = false;
                         if (!g_final_weapon_transform_logged) {
                             g_final_weapon_transform_logged = true;

@@ -84,6 +84,14 @@ namespace afvr
         void frame_presented(bool stereo);
         [[nodiscard]] bool block_desktop_keyboard() const { return settings_.block_keyboard; }
         [[nodiscard]] bool show_crosshair() const { return settings_.crosshair; }
+        [[nodiscard]] float weapon_scale(int weapon_id) const
+        {
+            if (weapon_id >= 0 && weapon_id < static_cast<int>(settings_.weapon_scale_by_id.size()) &&
+                settings_.weapon_scale_by_id[weapon_id] > 0.0f) {
+                return settings_.weapon_scale_by_id[weapon_id];
+            }
+            return settings_.weapon_scale;
+        }
 
     private:
         struct Settings
@@ -109,6 +117,10 @@ namespace afvr
             bool menu_2d = true;             // pause/main menu on WinlatorXR's sharp 2D screen
             float screen_distance_m = 1.6f;  // menu / scope virtual screen distance
             float screen_width_m = 2.4f;     // menu / scope virtual screen width
+            // Visual size of the hand-held weapon (1 = model size). Grip stays
+            // in the hand; muzzle/laser scale with the model.
+            float weapon_scale = 0.75f;
+            std::array<float, 64> weapon_scale_by_id{}; // 0 = use weapon_scale
         };
 
         struct EyeTarget
