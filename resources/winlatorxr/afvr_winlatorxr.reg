@@ -1,8 +1,8 @@
 REGEDIT4
 
 [HKEY_CURRENT_USER\Software\Volition\Red Faction]
-"Resolution Width"=dword:00000954
-"Resolution Height"=dword:00000438
+"Resolution Width"=dword:00000c80
+"Resolution Height"=dword:000005a8
 "Resolution Bit Depth"=dword:00000020
 "Vsync"=dword:00000000
 

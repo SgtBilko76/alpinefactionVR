@@ -1,10 +1,22 @@
-Red Faction VR for Meta Quest 3 (WinlatorXR) - Beta 0.1.0
+Red Faction VR for Meta Quest 3 (WinlatorXR) - Beta 0.2.0
 ===========================================================
 
 Alpine Faction VR running standalone on a Meta Quest 3 through WinlatorXR
 (Wine + Box64 + DXVK). No PC is needed while playing.
 
 Tested on: Meta Quest 3, WinlatorXR dawn-33, GOG Red Faction (English).
+
+New in 0.2.0
+------------
+- Sharper picture: 3200x1448 (1600x1448 per eye) instead of 2388x1080.
+  Set the container screen size to 3200x1448 (see Install, step 3).
+- Multiplayer: shots, rockets and grenades follow your hand and laser, as in
+  singleplayer.
+- Sniper and precision rifle: hold the left trigger to zoom; the scope shows
+  its crosshair and is aimed with your right hand.
+- Flamethrower: the flame follows the laser.
+- Weapons are smaller (75 %); the size is adjustable (weapon_scale in
+  afvr_winlatorxr.ini).
 
 You need
 --------
@@ -19,7 +31,7 @@ Install
    headset as Download/RedFaction.
 2. Copy everything from this ZIP into that folder (replace files if asked).
 3. In WinlatorXR create a container for the game with these settings:
-   - Screen size: custom 2388x1080 (important)
+   - Screen size: custom 3200x1448 (important)
    - DX wrapper: DXVK (Async on)
    - Graphics driver: Wrapper / Turnip
    - XR API: enabled
@@ -40,7 +52,7 @@ Right stick left/right Snap turn
 Right stick up/down   Previous / next weapon
 Right stick click     Laser sight on/off
 Right trigger         Fire
-Left trigger          Alternate fire (sniper / precision rifle zoom)
+Left trigger          Alternate fire (hold: sniper / precision rifle zoom)
 Right grip + trigger  Alternate fire (same as left trigger)
 Left grip             Use / grab the weapon with both hands
 A                     Crouch
@@ -52,7 +64,7 @@ Left menu button      Pause menu (WinlatorXR's 2D screen, point and click)
 Settings
 --------
 afvr_winlatorxr.ini in the game folder holds the Quest settings (HUD size and
-position, menu screen, graphics, CPU cores). Remove the ";" in front of a line
+position, menu screen, weapon size, graphics, CPU cores). Remove the ";" in front of a line
 and change the value; most changes apply within a second while playing.
 
 Other game versions
@@ -69,7 +81,12 @@ Known issues
 - Menus use WinlatorXR's 2D screen; set menu_2d=0 in the ini to show them
   inside VR instead.
 - Frame rate is limited to 72 fps by the container (DXVK frame rate setting).
-- Multiplayer is untested on Quest.
+- Multiplayer is tested as host. On other people's servers, automatic
+  weapons and the flamethrower may still fire in the body direction.
+- 3200x1448 runs at about 70-80 fps in multiplayer maps. If a level stutters,
+  use 2388x1080: set it as the container screen size and change
+  "Resolution Width"/"Resolution Height" in afvr_winlatorxr.reg to
+  dword:00000954 / dword:00000438.
 
 Credits
 -------
