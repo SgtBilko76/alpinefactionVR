@@ -103,6 +103,10 @@ namespace afvr
     // Position and orientation match the visible beam exactly for every gun.
     [[nodiscard]] bool get_weapon_muzzle_pose(rf::Vector3& position, rf::Matrix3& orientation);
 
+    // World pose of the tracked first-person weapon mesh (what the player sees
+    // in the right hand). Native code that reads fpgun tags uses this.
+    [[nodiscard]] bool get_weapon_render_pose(rf::Vector3& position, rf::Matrix3& orientation);
+
     // Final local on-foot projectile-creation pose. Guns, grenades, and remote
     // charges use the synchronized laser/fire position and orientation.
     [[nodiscard]] bool get_weapon_launch_pose(int weapon_type,

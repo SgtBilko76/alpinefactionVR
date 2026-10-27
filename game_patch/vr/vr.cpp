@@ -2358,7 +2358,11 @@ namespace afvr
             return g_openxr && g_openxr->is_session_running() &&
                 rf::local_player && controls == &rf::local_player->settings.controls &&
                 !g_menu_capture_active && !g_gameplay_input_blocked_until_release &&
-                action == rf::CC_ACTION_CROUCH && g_crouch_pressed;
+                ((action == rf::CC_ACTION_CROUCH && g_crouch_pressed) ||
+                    // Held alternate fire: the sniper/precision scope zooms in
+                    // further only while control_is_control_down reports it.
+                    (action == rf::CC_ACTION_SECONDARY_ATTACK &&
+                        g_secondary_fire_pressed));
 #else
             (void)controls;
             (void)action;
@@ -4461,6 +4465,23 @@ namespace afvr
         position = g_weapon_fire_position;
         orientation = g_weapon_fire_orientation;
         audit_weapon_fire_origin(false);
+        return true;
+#else
+        (void)position;
+        (void)orientation;
+        return false;
+#endif
+    }
+
+    bool get_weapon_render_pose(rf::Vector3& position, rf::Matrix3& orientation)
+    {
+#ifdef AF_ENABLE_OPENXR
+        if (!g_openxr || !g_openxr->is_session_running() ||
+            !g_weapon_pose_valid || !g_weapon_aim_pose_valid) {
+            return false;
+        }
+        position = g_weapon_render_position;
+        orientation = g_weapon_render_orientation;
         return true;
 #else
         (void)position;

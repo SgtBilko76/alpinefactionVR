@@ -458,6 +458,63 @@ FunHook<void(rf::Entity*, int, int, int, int, int)> entity_fire_weapon_hook{
     },
 };
 
+// The flamethrower is not fired through entity_fire_weapon on every tick:
+// this per-frame update (0x0041AC60) moves the flame emitter and applies the
+// flame damage. For the local first-person player it takes the emitter
+// position from the desktop fpgun mesh tag (fpgun_pos/orient) and the
+// direction from the entity eye pose, so in VR the flame left along the body
+// direction. Give it the tracked weapon mesh pose and the synchronized
+// laser/fire pose for the duration of the call.
+FunHook<void(rf::Entity*)> entity_update_flamethrower_hook{
+    0x0041AC60,
+    [](rf::Entity* entity) {
+        rf::Player* player = rf::local_player;
+        rf::Vector3 muzzle_position{};
+        rf::Matrix3 muzzle_orientation{};
+        rf::Vector3 weapon_position{};
+        rf::Matrix3 weapon_orientation{};
+        if (!player || !is_local_vr_handheld_fire(entity) ||
+            !afvr::get_weapon_muzzle_pose(muzzle_position, muzzle_orientation) ||
+            !afvr::get_weapon_render_pose(weapon_position, weapon_orientation)) {
+            entity_update_flamethrower_hook.call_target(entity);
+            return;
+        }
+
+        const rf::Vector3 saved_eye_position = entity->eye_pos;
+        const rf::Matrix3 saved_eye_orientation = entity->eye_orient;
+        const rf::Vector3 saved_fpgun_position = player->fpgun_data.fpgun_pos;
+        const rf::Matrix3 saved_fpgun_orientation = player->fpgun_data.fpgun_orient;
+        entity->eye_pos = muzzle_position;
+        entity->eye_orient = muzzle_orientation;
+        player->fpgun_data.fpgun_pos = weapon_position;
+        player->fpgun_data.fpgun_orient = weapon_orientation;
+
+        entity_update_flamethrower_hook.call_target(entity);
+
+        entity->eye_pos = saved_eye_position;
+        entity->eye_orient = saved_eye_orientation;
+        player->fpgun_data.fpgun_pos = saved_fpgun_position;
+        player->fpgun_data.fpgun_orient = saved_fpgun_orientation;
+
+        // 0x0048F2A0 copies a flame emitter's world position and direction
+        // (the direction is normalized there). Put the flame on the laser.
+        if (entity->flame_handle != -1) {
+            using FlameSetPosDir = void(int handle, rf::Vector3* position, rf::Vector3* direction);
+            auto& flame_set_pos_dir = addr_as_ref<FlameSetPosDir>(0x0048F2A0);
+            rf::Vector3 flame_direction = muzzle_orientation.fvec;
+            flame_set_pos_dir(entity->flame_handle, &muzzle_position, &flame_direction);
+        }
+
+        static bool flame_logged = false;
+        if (!flame_logged) {
+            flame_logged = true;
+            xlog::info(
+                "[AFVR] Flamethrower flame follows the tracked weapon and fire direction (multiplayer={})",
+                rf::is_multi);
+        }
+    },
+};
+
 // RF resolves the final gameplay fire transform here after entity_fire_weapon
 // has prepared the entity eye pose. For local players the native code advances
 // that position another 0.2-0.3 m along the eye direction (and some weapon
@@ -1228,6 +1285,7 @@ void player_do_patch()
     // Allow swapping Assault Rifle primary and alternate fire controls
     player_fire_primary_weapon_hook.install();
     entity_fire_weapon_hook.install();
+    entity_update_flamethrower_hook.install();
     entity_get_weapon_fire_transform_hook.install();
     weapon_create_hook.install();
     stop_continous_primary_fire_patch.install();
