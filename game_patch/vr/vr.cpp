@@ -2132,6 +2132,21 @@ namespace afvr
                 if (g_openxr && g_openxr->is_session_running() &&
                     player == rf::local_player) {
                     if (!g_rendering_weapon) {
+                        // While a rifle scope is zoomed in, player_fpgun_render
+                        // draws only RF's scope mask and reticle (it returns
+                        // before the gun mesh when zoom > 1). Let that through
+                        // for the native scope pass.
+                        if (g_scope_capture_active &&
+                            player->fpgun_data.zoom_factor > 1.0f) {
+                            static bool scope_overlay_logged = false;
+                            if (!scope_overlay_logged) {
+                                scope_overlay_logged = true;
+                                xlog::info(
+                                    "[AFVR] Native scope mask/reticle rendered (zoom {:.2f})",
+                                    player->fpgun_data.zoom_factor);
+                            }
+                            return g_player_fpgun_render_hook.call_target(player);
+                        }
                         if (!g_player_render_reached_logged) {
                             g_player_render_reached_logged = true;
                             xlog::info("[AFVR] player_render reached");
@@ -2662,13 +2677,40 @@ namespace afvr
 
                         // RF has already selected the zoomed horizontal FOV for
                         // this native pass. Keep that exact FOV/scope overlay,
-                        // but use the last predicted HMD pose so opening the
-                        // quad does not snap back to the body-facing camera.
-                        if (g_head_pose_valid) {
+                        // but look along the right-hand fire direction (the same
+                        // ray the shot uses), so the scope is aimed with the
+                        // weapon instead of the head. Wrist roll is removed so
+                        // the picture stays level. Fall back to the HMD pose.
+                        const float scope_fov = addr_as_ref<float>(0x0059613C);
+                        if (g_weapon_pose_valid && g_weapon_aim_pose_valid) {
+                            const rf::Vector3 forward = g_weapon_fire_orientation.fvec;
+                            rf::Vector3 right = rf::Vector3{0.0f, 1.0f, 0.0f}.cross(forward);
+                            rf::Matrix3 scope_eye_matrix = g_weapon_fire_orientation;
+                            if (right.len() > 0.01f) {
+                                right.normalize();
+                                rf::Vector3 up = forward.cross(right);
+                                up.normalize();
+                                scope_eye_matrix.rvec = right;
+                                scope_eye_matrix.uvec = up;
+                                scope_eye_matrix.fvec = forward;
+                            }
+                            rf::Vector3 scope_eye_position = g_weapon_fire_position;
+                            rf::gr::setup_3d(scope_eye_matrix, scope_eye_position,
+                                scope_fov, true, true);
+                            static bool scope_aim_logged = false;
+                            if (!scope_aim_logged) {
+                                scope_aim_logged = true;
+                                xlog::info(
+                                    "[AFVR] Scope view follows the right-hand fire direction (fov {:.1f}, zoom {:.2f})",
+                                    scope_fov, rf::local_player
+                                        ? rf::local_player->fpgun_data.zoom_factor : 0.0f);
+                            }
+                        }
+                        else if (g_head_pose_valid) {
                             rf::Matrix3 scope_eye_matrix = g_head_orientation;
                             rf::Vector3 scope_eye_position = g_head_position;
                             rf::gr::setup_3d(scope_eye_matrix, scope_eye_position,
-                                addr_as_ref<float>(0x0059613C), true, true);
+                                scope_fov, true, true);
                         }
                     }
 #endif
