@@ -389,9 +389,12 @@ FunHook<void(rf::Player*, bool, bool)> player_fire_primary_weapon_hook{
     },
 };
 
+// Applies in singleplayer and multiplayer. In multiplayer the client-built
+// weapon_fire packet carries the corrected muzzle position and direction, so
+// the server (or a listen host) resolves hits along the visible VR laser.
 bool is_local_vr_handheld_fire(rf::Entity* entity)
 {
-    return entity && rf::local_player && !rf::is_multi &&
+    return entity && rf::local_player &&
         afvr::is_session_running() &&
         entity->handle == rf::local_player->entity_handle &&
         !rf::entity_in_vehicle(entity) &&
@@ -448,7 +451,8 @@ FunHook<void(rf::Entity*, int, int, int, int, int)> entity_fire_weapon_hook{
             static bool vr_fire_logged = false;
             if (!vr_fire_logged) {
                 vr_fire_logged = true;
-                xlog::info("[AFVR] Every local singleplayer shot uses tracked VR aim; weapon camera shake is suppressed");
+                xlog::info("[AFVR] Local shots use tracked VR aim (multiplayer={}); weapon camera shake is suppressed",
+                    rf::is_multi);
             }
         }
     },
