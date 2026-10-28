@@ -17,6 +17,10 @@ This fork also runs **standalone on a Meta Quest 3** through WinlatorXR (Wine + 
 
 Download `RedFactionVR-Quest-WinlatorXR-v0.2.0-beta.zip` from the Releases page and follow the included `README-WinlatorXR.txt`. Quest-specific settings live in `afvr_winlatorxr.ini`. Building on Linux: see [docs/BUILDING.md](docs/BUILDING.md) (set `AF_NATIVE_D3DCOMPILER`) and `tools/make-winlatorxr-release.sh`.
 
+### Quest controls
+
+![Red Faction VR controller mapping](docs/controls.webp)
+
 ## What's new in 1.1 beta
 
 - Updated the D3D11/OpenXR device configuration used by the verified VDXR build.
